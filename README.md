@@ -1,5 +1,5 @@
 
-# 🧰 Mi Caja de Herramientas ⚙️
+# 🧰 Mi Caja de Herramientas⚙️
 
 Repositorio personal donde recopilo scripts, herramientas y pequeños proyectos desarrollados en diferentes lenguajes de programación.
 
