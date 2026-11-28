@@ -178,7 +178,7 @@
       // AQUÍ SE CONTROLA EL TAMAÑO Y DENSIDAD DE LOS ÁTOMOS:
       // - Multiplicar fragCoord.xy por 2.0 hace el grano más fino/pequeño
       // - Subir 0.09 -> 0.55 hace que haya menos puntos pegados (chispas más finas y sueltas)
-      float atomo = step(0.55, ruidoAtomico(fragCoord.xy * 2.0 + vec2(u_time * 6.0, u_time * 2.5)));
+      float atomo = step(0.50, ruidoAtomico(fragCoord.xy * 2.0 + vec2(u_time * 6.0, u_time * 2.5)));
 
       float efectoElegido = mix(onda, atomo, step(0.5, u_modo));
 
