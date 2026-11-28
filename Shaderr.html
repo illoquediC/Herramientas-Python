@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daltonic Assist - Shader WebGL</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      min-height: 100vh;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    h2 {
+      margin: 0 0 6px 0;
+      color: #00D4FF;
+      letter-spacing: 0.5px;
+    }
+    p {
+      color: #aaa;
+      margin: 0 0 16px 0;
+      font-size: 14px;
+      text-align: center;
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 25px rgba(0, 212, 255, 0.2);
+      border: 1px solid #2a2a2a;
+      background: #000;
+    }
+    video {
+      display: none;
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .controls {
+      display: none;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    button {
+      padding: 12px 22px;
+      background-color: #007acc;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    button:hover {
+      background-color: #005999;
+    }
+    button:active {
+      transform: scale(0.97);
+    }
+    .btn-toggle {
+      background-color: #1e1e1e;
+      border: 1px solid #00D4FF;
+      color: #00D4FF;
+    }
+    .btn-toggle:hover {
+      background-color: #00D4FF;
+      color: #121212;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Filtro Atómico GPU (WebGL)</h2>
+  <p>Shader AGSL portado a hardware en tiempo real</p>
+
+  <button id="btnStart" onclick="iniciarCamara()">Activar Cámara</button>
+
+  <div class="video-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="glCanvas"></canvas>
+  </div>
+
+  <div class="controls" id="controlsPanel">
+    <button class="btn-toggle" id="btnCanal" onclick="toggleCanal()">Canal: ROJO</button>
+    <button class="btn-toggle" id="btnModo" onclick="toggleModo()">Efecto: ONDA</button>
+  </div>
+
+  <!-- VERTEX SHADER -->
+  <script id="vertex-shader" type="x-shader/x-vertex">
+    attribute vec2 a_position;
+    attribute vec2 a_texCoord;
+    varying vec2 v_texCoord;
+
+    void main() {
+      gl_Position = vec4(a_position, 0.0, 1.0);
+      v_texCoord = a_texCoord;
+    }
+  </script>
+
+  <!-- FRAGMENT SHADER (Tu shader AGSL adaptado a GLSL) -->
+  <script id="fragment-shader" type="x-shader/x-fragment">
+    precision highp float;
+
+    uniform sampler2D u_texture;
+    uniform float u_time;
+    uniform float u_modo;        // 0.0 = Onda, 1.0 = Átomo
+    uniform float u_canalAislar; // 0.0 = Rojo, 1.0 = Verde
+    uniform vec2 u_resolution;
+
+    varying vec2 v_texCoord;
+
+    float ruidoAtomico(vec2 co) {
+      return fract(sin(dot(co.xy, vec2(12.9898, 58.233))) * 23758.5453);
+    }
+
+    void main() {
+      // Equivalente a fragCoord en AGSL (coordenadas en píxeles)
+      vec2 fragCoord = v_texCoord * u_resolution;
+
+      vec4 texColor = texture2D(u_texture, v_texCoord);
+      vec3 color = texColor.rgb;
+
+      // --- MÁSCARAS BRANCHLESS (Optimización GPU) ---
+      // Máscara Rojo: R dominante sobre G y B
+      float maxG_B = max(color.g, color.b);
+      float mascaraRojo = step(0.3, color.r - maxG_B) * step(0.3, color.r);
+
+      // Máscara Verde: G dominante sobre R y B
+      float maxR_B = max(color.r, color.b);
+      float mascaraVerde = step(0.25, color.g - maxR_B) * step(0.25, color.g);
+
+      // Selección de canal a aislar (0 = Rojo, 1 = Verde)
+      float mascaraFinal = mix(mascaraRojo, mascaraVerde, step(0.5, u_canalAislar));
+
+      // --- EFECTOS ---
+      float onda = step(0.0, sin(fragCoord.y * 0.1 + u_time * 5.0));
+      float atomo = step(0.09, ruidoAtomico(fragCoord.xy + vec2(u_time * 6.0, u_time * 2.5)));
+
+      // Selección de modo de efecto
+      float efectoElegido = mix(onda, atomo, step(0.5, u_modo));
+
+      // --- CÁLCULO DE COLOR ASISTIDO ---
+      float brillo = (color.r + color.g + color.b) * 0.33333;
+      float esNaranja = smoothstep(0.18, 0.3, color.g);
+
+      vec3 azulElectrico = vec3(0.0, 0.3 * brillo, 2.5 * brillo);
+      vec3 celesteAtomico = vec3(0.0, 1.8 * brillo, 3.5 * brillo);
+      vec3 colorEfecto = mix(azulElectrico, celesteAtomico, esNaranja);
+
+      // Aplicación final del efecto
+      float aplicarAhora = mascaraFinal * efectoElegido;
+      gl_FragColor = vec4(mix(color, colorEfecto, aplicarAhora), texColor.a);
+    }
+  </script>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('glCanvas');
+    const gl = canvas.getContext('webgl');
+    const btnStart = document.getElementById('btnStart');
+    const controlsPanel = document.getElementById('controlsPanel');
+
+    let estadoCanal = 0.0; // 0.0 = Rojo, 1.0 = Verde
+    let estadoModo = 0.0;  // 0.0 = Onda, 1.0 = Átomo
+    let startTime = performance.now();
+
+    let program, texture;
+    let uTimeLoc, uModoLoc, uCanalLoc, uResLoc;
+
+    function toggleCanal() {
+      estadoCanal = estadoCanal === 0.0 ? 1.0 : 0.0;
+      document.getElementById('btnCanal').innerText =
+        estadoCanal === 0.0 ? "Canal: ROJO" : "Canal: VERDE";
+    }
+
+    function toggleModo() {
+      estadoModo = estadoModo === 0.0 ? 1.0 : 0.0;
+      document.getElementById('btnModo').innerText =
+        estadoModo === 0.0 ? "Efecto: ONDA" : "Efecto: ÁTOMO";
+    }
+
+    function compilarShader(gl, id, tipo) {
+      const source = document.getElementById(id).text;
+      const shader = gl.createShader(tipo);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error("Error compilando shader:", gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    function inicializarWebGL() {
+      const vs = compilarShader(gl, 'vertex-shader', gl.VERTEX_SHADER);
+      const fs = compilarShader(gl, 'fragment-shader', gl.FRAGMENT_SHADER);
+
+      program = gl.createProgram();
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+      gl.useProgram(program);
+
+      // Quad de pantalla completa
+      const posBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1,   1, -1,  -1,  1,
+        -1,  1,   1, -1,   1,  1
+      ]), gl.STATIC_DRAW);
+
+      const posLoc = gl.getAttribLocation(program, "a_position");
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+      // Coordenadas de textura (invertidas en Y para vídeo HTML5)
+      const texBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        0, 1,   1, 1,   0, 0,
+        0, 0,   1, 1,   1, 0
+      ]), gl.STATIC_DRAW);
+
+      const texLoc = gl.getAttribLocation(program, "a_texCoord");
+      gl.enableVertexAttribArray(texLoc);
+      gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
+
+      // Crear textura para el vídeo
+      texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+      // Ubicaciones de uniforms
+      uTimeLoc = gl.getUniformLocation(program, "u_time");
+      uModoLoc = gl.getUniformLocation(program, "u_modo");
+      uCanalLoc = gl.getUniformLocation(program, "u_canalAislar");
+      uResLoc = gl.getUniformLocation(program, "u_resolution");
+    }
+
+    async function iniciarCamara() {
+      if (!gl) {
+        alert("Tu navegador no soporta WebGL.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        btnStart.style.display = 'none';
+        controlsPanel.style.display = 'flex';
+
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          inicializarWebGL();
+          renderLoop();
+        };
+      } catch (err) {
+        alert("Error al acceder a la cámara: " + err.message);
+      }
+    }
+
+    function renderLoop() {
+      if (video.paused || video.ended) return;
+
+      const elapsedTime = (performance.now() - startTime) * 0.001;
+
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+
+      gl.uniform1f(uTimeLoc, elapsedTime);
+      gl.uniform1f(uModoLoc, estadoModo);
+      gl.uniform1f(uCanalLoc, estadoCanal);
+      gl.uniform2f(uResLoc, canvas.width, canvas.height);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      requestAnimationFrame(renderLoop);
+    }
+  </script>
+
+</body>
+</html>
